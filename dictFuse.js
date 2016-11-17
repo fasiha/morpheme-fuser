@@ -106,16 +106,20 @@ function partitionMorphemesSymbols(morphemes) {
       .filter(v => morphemeNotSymbol(v[0]));
 }
 
+function morphemesToLiteralsLemma(morphemes) {
+  var lemmas = morphemes.map(m => kata2hira(m['lemma-pronunciation']));
+  var literals = morphemes.map(m => kata2hira(m['literal-pronunciation']));
+  return prefixTuples(literals, 1)
+      .map((v, i) => v.slice(0, -1).concat(lemmas[i + 1]).join(''));
+}
+
 // Given a vector of morphemes, find the longest run of them, starting from the
 // beginning, that is in JMDICT.
 function findLongestLeadingFuse(morphemes) {
   if (!morphemes || morphemes.length === 0) {
     return [];
   }
-  var lemmas = morphemes.map(m => kata2hira(m['lemma-pronunciation']));
-  var literals = morphemes.map(m => kata2hira(m['literal-pronunciation']));
-  var scans = prefixTuples(literals, 1)
-                  .map((v, i) => v.slice(0, -1).concat(lemmas[i + 1]).join(''));
+  var scans = morphemesToLiteralsLemma(morphemes);
   var maxIndex = scans.map(s => readings.has(s)).lastIndexOf(true);
   if (maxIndex >= 0) {
     console.log(`found match for [${scans[maxIndex]}]!`);
@@ -131,7 +135,7 @@ function findSuccessiveFuses(morphemes) {
   if (!morphemes || morphemes.length <= 1) {
     return [];
   }
-  console.log('SCAN: ' + morphemes.map(x => x.literal).join(''));
+  // console.log('SCAN: ' + morphemes.map(x => x.literal).join(''));
   var best = findLongestLeadingFuse(morphemes);
   if (best.length > 0) {
     return [ best ].concat(findSuccessiveFuses(morphemes.slice(best.length)));
@@ -144,6 +148,28 @@ function findSuccessiveFuses(morphemes) {
 //
 var morphemes = kuromojiFrontend('ことがあります');
 morphemes = kuromojiFrontend('私は、ソウルへ行ったことがあります。');
+morphemes = kuromojiFrontend('私は学生じゃない。');
+morphemes = kuromojiFrontend('私は学生じゃなかった。');
 var example = partitionMorphemesSymbols(morphemes).map(findSuccessiveFuses);
 console.log(example);
 // flatten1(example).map(v => v[0].position) // starting position of each fuse
+
+// Apply to Grammar dictionary
+var gd = fs.readFileSync('data/grammar-dicts/sentences.tsv', 'utf8')
+             .trim()
+             .split('\n')
+             .slice(1)
+             .map(s => {
+               const [entry, entryTrans, jp, en] = s.trim().split('\t');
+               return jp;
+             });
+var gdKuromoji = gd.slice(0, 100).map(kuromojiFrontend);
+
+var gdFuses = gdKuromoji.map(
+    morphemes => flatten1(
+        partitionMorphemesSymbols(morphemes).map(findSuccessiveFuses)));
+gdFuses[0].map(morphemesToLiteralsLemma)
+// Idea: if kanji is present, use it to weigh odds of false alarm, like these
+
+gdFuses.map(fuses=>fuses.map(morphemesToLiteralsLemma))
+gdFuses.map(fuses=>fuses.map(morphemes=>morphemes.map(m=>m.literal).join('')))
