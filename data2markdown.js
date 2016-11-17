@@ -16,7 +16,7 @@ var kts = fs.readFileSync('data/kts/docs.ldjson', 'utf8')
               .filter(({_id}) => _id.indexOf('sentence-') >= 0)
               .map(({japanese, translation}) => `${japanese}—${translation}`);
 
-fs.writeFileSync('allSentences.md',
+fs.writeFileSync('data/allSentences.md',
                  `# GD
 ${gd.join('\n')}
 
