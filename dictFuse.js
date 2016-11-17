@@ -88,38 +88,7 @@ function kuromojiFrontend(s) {
 // NLP magic
 //
 
-// Given a vector of morphemes, find the longest run of them, starting from the
-// beginning, that is in JMDICT.
-function findLongestLeadingFuse(morphemes) {
-  if (!morphemes || morphemes.length === 0) {
-    return -1;
-  }
-  var lemmas = morphemes.map(m => kata2hira(m['lemma-pronunciation']));
-  var literals = morphemes.map(m => kata2hira(m['literal-pronunciation']));
-  var scans = prefixTuples(literals, 1)
-                  .map((v, i) => v.slice(0, -1).concat(lemmas[i + 1]).join(''));
-  var maxIndex = scans.map(s => readings.has(s)).lastIndexOf(true);
-  if (maxIndex >= 0) {
-    console.log(`found match for [${scans[maxIndex]}]!`);
-  }
-  var numMorphemes = maxIndex >= 0 ? maxIndex + 2 : 0;
-  return numMorphemes;
-}
-// findLongestLeadingFuse(morphemes);
-
-// As findLongestLeadingFuse (above) finds leading fuses, cut them off and
-// iterate. This is a recursive function.
-function findSuccessiveFuses(morphemes) {
-  if (!morphemes || morphemes.length === 0) {
-    return [];
-  }
-  console.log('SCAN: ' + morphemes.map(x => x.literal).join(''));
-  var num = findLongestLeadingFuse(morphemes);
-  if (num > 0) {
-    return [ num ].concat(findSuccessiveFuses(morphemes.slice(num)));
-  }
-  return [ 0 ].concat(findSuccessiveFuses(morphemes.slice(1)));
-}
+// Morpheme Utilities
 
 function morphemeNotSymbol(m) {
   return m['part-of-speech'].join('').indexOf('supplementary-symbol') < 0;
@@ -137,9 +106,44 @@ function partitionMorphemesSymbols(morphemes) {
       .filter(v => morphemeNotSymbol(v[0]));
 }
 
+// Given a vector of morphemes, find the longest run of them, starting from the
+// beginning, that is in JMDICT.
+function findLongestLeadingFuse(morphemes) {
+  if (!morphemes || morphemes.length === 0) {
+    return [];
+  }
+  var lemmas = morphemes.map(m => kata2hira(m['lemma-pronunciation']));
+  var literals = morphemes.map(m => kata2hira(m['literal-pronunciation']));
+  var scans = prefixTuples(literals, 1)
+                  .map((v, i) => v.slice(0, -1).concat(lemmas[i + 1]).join(''));
+  var maxIndex = scans.map(s => readings.has(s)).lastIndexOf(true);
+  if (maxIndex >= 0) {
+    console.log(`found match for [${scans[maxIndex]}]!`);
+  }
+  var numMorphemes = maxIndex >= 0 ? maxIndex + 2 : 0;
+  return morphemes.slice(0, numMorphemes);
+}
+// findLongestLeadingFuse(morphemes);
+
+// As findLongestLeadingFuse (above) finds leading fuses, cut them off and
+// iterate. This is a recursive function.
+function findSuccessiveFuses(morphemes) {
+  if (!morphemes || morphemes.length <= 1) {
+    return [];
+  }
+  console.log('SCAN: ' + morphemes.map(x => x.literal).join(''));
+  var best = findLongestLeadingFuse(morphemes);
+  if (best.length > 0) {
+    return [ best ].concat(findSuccessiveFuses(morphemes.slice(best.length)));
+  }
+  return [].concat(findSuccessiveFuses(morphemes.slice(1)));
+}
+
 //
 // # Example #
 //
 var morphemes = kuromojiFrontend('ことがあります');
 morphemes = kuromojiFrontend('私は、ソウルへ行ったことがあります。');
-console.log(partitionMorphemesSymbols(morphemes).map(findSuccessiveFuses))
+var example = partitionMorphemesSymbols(morphemes).map(findSuccessiveFuses);
+console.log(example);
+// flatten1(example).map(v => v[0].position) // starting position of each fuse
