@@ -3,6 +3,12 @@
 //
 // # Utilities #
 //
+function arrSome(v) { return v.reduce((p, c) => p || c, false); }
+var setunion = (s, t) => new Set([...s, ...t ]);
+var setint = (s, t) => new Set([...s ].filter(x => t.has(x)));
+var setdiff = (s, t) => new Set([...s ].filter(x => !t.has(x)));
+var seteq = (s, t) => setdiff(s, t).size === 0 && setdiff(t, s).size === 0;
+
 function rle(v) {
   return v.reduce((prev, curr) => {
     if (prev.length === 0 || prev.slice(-1)[0].value !== curr) {
@@ -50,6 +56,19 @@ function tupleTuples(v, toosmall) {
 }
 // tupleTuples('ABCD'.split(''), 1)
 
+/*
+Upsert a value into a map that has all-array values.
+*/
+function mapUpsertPush(map, key, val) {
+  let hit = map.get(key);
+  if (hit) {
+    hit.push(val);
+  } else {
+    map.set(key, [ val ]);
+  }
+  return map;
+}
+
 //
 // # Load data #
 //
@@ -62,9 +81,9 @@ var jmdict = fs.readFileSync('./data/jmdict/JMdict-full.ldjson', 'utf8')
 function flatten1(v) { return v.reduce((prev, curr) => prev.concat(curr), []); }
 
 var kata2hira = require('./kata2hira.js');
-var readings = new Set();
-jmdict.forEach(({r_ele}) =>
-                   r_ele.forEach(({reb}) => readings.add(kata2hira(reb))));
+var readings = new Map();
+jmdict.forEach(({r_ele}, i) => r_ele.forEach(
+                   ({reb}) => mapUpsertPush(readings, kata2hira(reb), i)));
 // console.log(readings.size);
 // console.log(JSON.stringify(jmdict[1123], null, 1))
 // fs.writeFileSync('readings.txt', Array.from(readings).join('\n'));
@@ -122,7 +141,7 @@ function findLongestLeadingFuse(morphemes) {
   var scans = morphemesToLiteralsLemma(morphemes);
   var maxIndex = scans.map(s => readings.has(s)).lastIndexOf(true);
   if (maxIndex >= 0) {
-    console.log(`found match for [${scans[maxIndex]}]!`);
+    // console.log(`found match for [${scans[maxIndex]}]!`);
   }
   var numMorphemes = maxIndex >= 0 ? maxIndex + 2 : 0;
   return morphemes.slice(0, numMorphemes);
@@ -168,8 +187,61 @@ var gdKuromoji = gd.slice(0, 100).map(kuromojiFrontend);
 var gdFuses = gdKuromoji.map(
     morphemes => flatten1(
         partitionMorphemesSymbols(morphemes).map(findSuccessiveFuses)));
-gdFuses[0].map(morphemesToLiteralsLemma)
-// Idea: if kanji is present, use it to weigh odds of false alarm, like these
 
-gdFuses.map(fuses=>fuses.map(morphemesToLiteralsLemma))
-gdFuses.map(fuses=>fuses.map(morphemes=>morphemes.map(m=>m.literal).join('')))
+function morphemesToText(morphemes) {
+  return morphemes.map(m => m.literal).join('');
+}
+
+// each element of gdFuses contains fuses, a vector of morpheme-vectors.
+// Each
+// sentence element of gdFuses can be split into contiguous text without
+// punctuation. So `fuses` may be read as "sub-sentences" or "clauses".
+var candReadings =
+    gdFuses.map(fuses => (fuses.map(ms => morphemesToLiteralsLemma(ms).filter(
+                                        s => readings.has(s)))));  // readings
+var candHits = candReadings.map(
+    fuses => fuses.map(hits => flatten1(hits.map(
+                           hit => readings.get(hit).map(i => jmdict[i])))));
+
+var candOrig = gdFuses.map(
+    fuses => flatten1(fuses.map(morphemesToText)));  // original text
+var candPos = gdFuses.map(
+    fuses => fuses.map(ms => ms.map(m => m['part-of-speech'].join('/'))));
+
+var fmap = require('./fmap');
+var hanRegexp =
+    /[⺀-⺙⺛-⻳⼀-⿕〡-〩〸-〻㐀-䶵一-鿕豈-舘並-龎]/g;
+
+var scoreLiteralToEntries = (lit, entries) => {
+  var kanjis = new Set(lit.match(hanRegexp));
+  // console.log(lit);
+  if (kanjis.size > 0) {
+    var scores = entries.map(
+        e => e.k_ele
+                 ? Math.max(...e.k_ele.map(
+                       ({keb}) => {
+                           // console.log(keb.match(hanRegexp), kanjis);
+                           return setint(new Set(keb.match(hanRegexp)), kanjis)
+                               .size})) /
+                       kanjis.size
+                 : 0);
+    return scores;
+  }
+  return entries.map(e => 0);
+};
+scoreLiteralToEntries(candOrig[0][0], candHits[0][0]);
+
+var candScores =
+    fmap((lits, entryGroups) => fmap(scoreLiteralToEntries, lits, entryGroups),
+         candOrig, candHits);
+
+function zip2(a, b) { return fmap((x, y) => [x, y], a, b); }
+var candReport = fmap((sentence, scores, literals) => {
+  var ret = sentence;
+  var sortedScores = zip2(scores.map(v => Math.max(...v)), literals.slice());
+  sortedScores.sort((a, b) => b[0] - a[0]);
+  var rest =
+      sortedScores.map(([ hiscore, lit ]) => `${lit}:${hiscore}`).join('; ');
+  return ret + ' ' + rest;
+}, gd.slice(0, candScores.length), candScores, candOrig);
+candReport
